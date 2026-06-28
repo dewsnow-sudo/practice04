@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 현재 날씨 조회</title>
+    <style>
+        :root {
+            --bg-color: #f0f4f8;
+            --card-bg: #ffffff;
+            --text-main: #2d3748;
+            --text-sub: #718096;
+            --primary: #3182ce;
+        }
+
+        body {
+            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .weather-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            padding: 30px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            box-sizing: border-box;
+        }
+
+        .location {
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .update-time {
+            font-size: 0.85rem;
+            color: var(--text-sub);
+            margin-bottom: 25px;
+        }
+
+        .temp-display {
+            font-size: 3.5rem;
+            font-weight: 300;
+            margin-bottom: 25px;
+            color: var(--primary);
+        }
+
+        .temp-display span {
+            font-size: 2rem;
+            font-weight: 400;
+        }
+
+        .weather-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .grid-item {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: left;
+        }
+
+        .grid-item .label {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            margin-bottom: 5px;
+        }
+
+        .grid-item .value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .btn-refresh {
+            margin-top: 25px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 30px;
+            font-size: 1rem;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+
+        .btn-refresh:hover {
+            background-color: #2b6cb0;
+        }
+
+        .loading {
+            font-size: 1.1rem;
+            color: var(--text-sub);
+            padding: 40px 0;
+        }
+
+        .error {
+            color: #e53e3e;
+            padding: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="weather-card">
+        <div class="location">📍 경기도 과천시 날씨</div>
+        <div class="update-time" id="api-time-info">데이터 계산 중...</div>
+
+        <div id="weather-content">
+            <div class="loading">날씨 정보를 불러오는 중입니다...</div>
+        </div>
+
+        <button class="btn-refresh" onclick="fetchWeather()">🔄 실시간 새로고침</button>
+    </div>
+
+    <script>
+        // 코드 설정 값
+        const API_KEY = "4ae1787d9cc0e73d6484b0cf137ce680792ba8c6922d024be57db2a588868104";
+        const NX = 60;
+        const NY = 124;
+
+        // 기상청 초단기실황 기준 발표 시각 계산 함수 (매시 40분 발표 대응)
+        function getBaseDateTime() {
+            const now = new Date();
+            
+            // 현재 분이 40분 미만이면 한 시간 전 데이터를 요청해야 함
+            if (now.getMinutes() < 40) {
+                now.setHours(now.getHours() - 1);
+            }
+
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const date = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+
+            return {
+                baseDate: `${year}${month}${date}`,
+                baseTime: `${hours}00`,
+                displayTime: `${year}-${month}-${date} ${hours}:00 발표 데이터`
+            };
+        }
+
+        // 공공데이터포털 API 호출 함수
+        async function fetchWeather() {
+            const contentDiv = document.getElementById('weather-content');
+            const timeInfoDiv = document.getElementById('api-time-info');
+            
+            contentDiv.innerHTML = `<div class="loading">실시간 기상 데이터를 가져오는 중...</div>`;
+
+            const { baseDate, baseTime, displayTime } = getBaseDateTime();
+            timeInfoDiv.innerText = displayTime;
+
+            // API URL 조립
+            const url = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst`
+                      + `?serviceKey=${API_KEY}`
+                      + `&pageNo=1`
+                      + `&numOfRows=1000`
+                      + `&dataType=JSON`
+                      + `&base_date=${baseDate}`
+                      + `&base_time=${baseTime}`
+                      + `&nx=${NX}`
+                      + `&ny=${NY}`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('네트워크 응답에 문제가 있습니다.');
+                
+                const data = await response.json();
+                
+                // 기상청 에러 체크
+                if (data.response.header.resultCode !== "00") {
+                    throw new Error(data.response.header.resultMsg || "API 내부 오류가 발생했습니다.");
+                }
+
+                const items = data.response.body.items.item;
+                displayWeatherData(items);
+
+            } catch (error) {
+                console.error(error);
+                contentDiv.innerHTML = `
+                    <div class="error">
+                        ⚠️ 날씨를 불러오지 못했습니다.<br>
+                        <small style="color:gray;">${error.message}</small>
+                    </div>`;
+            }
+        }
+
+        // 화면에 기상 데이터 바인딩하는 함수
+        function displayWeatherData(items) {
+            // 필요한 기상 요소 변수 초기화
+            let T1H = '', REH = '', RN1 = '', WSD = '';
+
+            items.forEach(item => {
+                switch(item.category) {
+                    case 'T1H': T1H = item.obsrValue; break; // 기온
+                    case 'REH': REH = item.obsrValue; break; // 습도
+                    case 'RN1': RN1 = item.obsrValue; break; // 1시간 강수량
+                    case 'WSD': WSD = item.obsrValue; break; // 풍속
+                }
+            });
+
+            // 강수량 표기 정리
+            const rainText = parseFloat(RN1) === 0 ? "강수 없음" : `${RN1}mm`;
+
+            const html = `
+                <div class="temp-display">${T1H}<span>°C</span></div>
+                
+                <div class="weather-grid">
+                    <div class="grid-item">
+                        <div class="label">💧 습도</div>
+                        <div class="value">${REH}%</div>
+                    </div>
+                    <div class="grid-item">
+                        <div class="label">🌧️ 강수량</div>
+                        <div class="value">${rainText}</div>
+                    </div>
+                    <div class="grid-item">
+                        <div class="label">💨 풍속</div>
+                        <div class="value">${WSD} m/s</div>
+                    </div>
+                    <div class="grid-item">
+                        <div class="label">📍 지역 좌표</div>
+                        <div class="value">X ${NX}, Y ${NY}</div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('weather-content').innerHTML = html;
+        }
+
+        // 페이지 로드 시 최초 1회 실행
+        window.onload = fetchWeather;
+    </script>
+</body>
+</html>
